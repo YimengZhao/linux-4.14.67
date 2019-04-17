@@ -3180,6 +3180,34 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		spin_lock(&q->busylock);
 
 	spin_lock(root_lock);
+
+	/* zym: check if qdisc is full */
+	if(q->q.qlen >= qdisc_dev(q)->tx_queue_len){
+		/*kfree_skb_qfull(skb);
+		
+		if(unlikely(contended))
+			spin_unlock(&q->busylock);
+		spin_unlock(root_lock);
+		return NET_XMIT_DROP;*/
+	}
+	else{
+		struct ubuf_info *uarg = skb_zcopy(skb);
+		if(uarg){
+			if(uarg->vq == 1)
+				return NET_XMIT_DROP;
+			/*if(uarg->vhost_qavail_callback  && !uarg->vhost_qavail_callback(uarg)){
+				//free skb
+				kfree_skb_wo_zcopy_clear(skb);
+
+				if(unlikely(contended))
+					spin_unlock(&q->busylock);
+				spin_unlock(root_lock);
+				return NET_XMIT_DROP;
+			}*/
+		}
+	}
+	
+
 	if (unlikely(test_bit(__QDISC_STATE_DEACTIVATED, &q->state))) {
 		__qdisc_drop(skb, &to_free);
 		rc = NET_XMIT_DROP;

@@ -35,6 +35,13 @@
 
 #include "vhost.h"
 
+/* zym */
+struct vq_list {
+	struct list_head head;
+};
+struct vq_list *vq_global_list;
+spinlock_t *vq_global_lock;
+
 static int experimental_zcopytx = 1;
 module_param(experimental_zcopytx, int, 0444);
 MODULE_PARM_DESC(experimental_zcopytx, "Enable Zero Copy TX;"
@@ -110,7 +117,14 @@ struct vhost_net_virtqueue {
 	struct vhost_net_ubuf_ref *ubufs;
 	struct skb_array *rx_array;
 	struct vhost_net_buf rxq;
+
+	/* zym */
+	int backoff_upend_idx;
+	u64 backoff_last_avail_idx;
+	struct list_head vq_node;
+	bool in_queue;
 };
+
 
 struct vhost_net {
 	struct vhost_dev dev;
@@ -330,6 +344,10 @@ static void vhost_zerocopy_signal_used(struct vhost_net *net,
 		if (VHOST_DMA_IS_DONE(vq->heads[i].len)) {
 			vq->heads[i].len = VHOST_DMA_CLEAR_LEN;
 			++j;
+
+			/* zym */
+			nvq->backoff_upend_idx = (nvq->backoff_upend_idx + 1) % UIO_MAXIOV;
+			nvq->backoff_last_avail_idx++;
 		} else
 			break;
 	}
@@ -340,6 +358,61 @@ static void vhost_zerocopy_signal_used(struct vhost_net *net,
 		nvq->done_idx = (nvq->done_idx + add) % UIO_MAXIOV;
 		j -= add;
 	}
+}
+
+/* zym */
+static void vhost_qfull_callback(struct ubuf_info *ubuf)
+{
+	struct vhost_net_ubuf_ref *ubufs = ubuf->ctx;
+	struct vhost_virtqueue *vq = ubufs->vq;
+	int cnt;
+	struct vhost_net_virtqueue *nvq = container_of(vq, struct vhost_net_virtqueue, vq);
+
+	rcu_read_lock_bh();
+
+	//if vhost_net_virtqueue is not in the global list, add it to the global list and update the upend_idx and last_avail_idx	
+	if(!nvq->in_queue){
+		nvq->upend_idx = nvq->backoff_upend_idx;
+		vq->last_avail_idx = nvq->backoff_last_avail_idx;
+		nvq->in_queue = true;
+	}
+
+	cnt = vhost_net_ubuf_put(ubufs);
+
+	if (cnt <= 1 || !(cnt % 16))
+		vhost_poll_queue(&vq->poll);
+
+	rcu_read_unlock_bh();
+}
+
+/* zym : return true if the packet should be passing to the lower layer */
+static bool vhost_qavail_callback(struct ubuf_info *ubuf)
+{
+	return true;
+	struct vhost_net_ubuf_ref *ubufs = ubuf->ctx;
+	struct vhost_virtqueue *vq = ubufs->vq;
+	int cnt;
+	struct vhost_net_virtqueue *nvq = container_of(vq, struct vhost_net_virtqueue, vq);
+	bool pass = false;
+	
+	rcu_read_lock_bh();
+
+	//if the nvq is not in the global list (not backoff before), continue passing the packet to the lower layer
+	if(!nvq->in_queue){
+		pass = true;
+	}
+	else{
+		/*if nvq is in the global list: (1) if the packet is the original packet that should be resent, pass the packet to the lower layer and remove the nvq from the global list;
+		(2) if the packet should be sent later than the original packet, drop the packet */
+		if(ubuf->desc <= nvq->backoff_upend_idx){
+			nvq->in_queue = false;
+			pass = true;			
+		}
+		else{
+			pass = false;
+		}
+	}
+	return pass;
 }
 
 static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
@@ -475,6 +548,7 @@ static void handle_tx(struct vhost_net *net)
 	hdr_size = nvq->vhost_hlen;
 	zcopy = nvq->ubufs;
 
+
 	for (;;) {
 		/* Release DMAs done buffers first */
 		if (zcopy)
@@ -531,6 +605,12 @@ static void handle_tx(struct vhost_net *net)
 			vq->heads[nvq->upend_idx].id = cpu_to_vhost32(vq, head);
 			vq->heads[nvq->upend_idx].len = VHOST_DMA_IN_PROGRESS;
 			ubuf->callback = vhost_zerocopy_callback;
+
+			/* zym */
+			ubuf->vhost_qavail_callback = vhost_qavail_callback;
+			ubuf->vhost_qfull_callback = vhost_qfull_callback;
+			ubuf->vq = 1;
+
 			ubuf->ctx = nvq->ubufs;
 			ubuf->desc = nvq->upend_idx;
 			refcount_set(&ubuf->refcnt, 1);
@@ -934,7 +1014,18 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 		n->vqs[i].vhost_hlen = 0;
 		n->vqs[i].sock_hlen = 0;
 		vhost_net_buf_init(&n->vqs[i].rxq);
+
+		n->vqs[i].backoff_upend_idx = 0;	/* zym */
+		n->vqs[i].backoff_last_avail_idx = 0;
+		n->vqs[i].in_queue = false;
+		INIT_LIST_HEAD(&n->vqs[i].vq_node);
 	}
+	/* zym */
+	vq_global_list = kmalloc(sizeof(struct vq_list), GFP_KERNEL);
+	INIT_LIST_HEAD(&vq_global_list->head);
+	vq_global_lock = kmalloc(sizeof(spinlock_t), GFP_KERNEL);
+	spin_lock_init(vq_global_lock);
+
 	vhost_dev_init(dev, vqs, VHOST_NET_VQ_MAX);
 
 	vhost_poll_init(n->poll + VHOST_NET_VQ_TX, handle_tx_net, POLLOUT, dev);

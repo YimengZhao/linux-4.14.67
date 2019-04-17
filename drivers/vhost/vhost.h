@@ -103,7 +103,7 @@ struct vhost_virtqueue {
 	struct eventfd_ctx *log_ctx;
 
 	struct vhost_poll poll;
-
+	
 	/* The routine to call when the Guest pings us, or timeout. */
 	vhost_work_fn_t handle_kick;
 
