@@ -368,6 +368,15 @@ static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 	rcu_read_unlock_bh();
 }
 
+/* zym */
+static void qfull_callback(struct ubuf_info *ubuf){
+}
+
+/* zym */
+static bool qavail_callback(struct ubuf_info *ubuf)
+{
+}
+
 static inline unsigned long busy_clock(void)
 {
 	return local_clock() >> 10;
@@ -531,6 +540,12 @@ static void handle_tx(struct vhost_net *net)
 			vq->heads[nvq->upend_idx].id = cpu_to_vhost32(vq, head);
 			vq->heads[nvq->upend_idx].len = VHOST_DMA_IN_PROGRESS;
 			ubuf->callback = vhost_zerocopy_callback;
+
+			/* zym */
+			ubuf->vhost_qavail_callback = qavail_callback;
+			ubuf->vhost_qfull_callback = qfull_callback;
+			ubuf->vq = 1;
+
 			ubuf->ctx = nvq->ubufs;
 			ubuf->desc = nvq->upend_idx;
 			refcount_set(&ubuf->refcnt, 1);
