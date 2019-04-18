@@ -110,6 +110,11 @@ struct vhost_net_virtqueue {
 	struct vhost_net_ubuf_ref *ubufs;
 	struct skb_array *rx_array;
 	struct vhost_net_buf rxq;
+
+	/* zym */
+	int backoff_upend_idx;
+	u64 backoff_last_avail_idx;
+	bool in_queue;
 };
 
 struct vhost_net {
@@ -330,6 +335,10 @@ static void vhost_zerocopy_signal_used(struct vhost_net *net,
 		if (VHOST_DMA_IS_DONE(vq->heads[i].len)) {
 			vq->heads[i].len = VHOST_DMA_CLEAR_LEN;
 			++j;
+
+			/* zym */
+			nvq->backoff_upend_idx = (nvq->backoff_upend_idx + 1) % UIO_MAXIOV;
+			nvq->backoff_last_avail_idx++;
 		} else
 			break;
 	}
@@ -375,6 +384,31 @@ static void qfull_callback(struct ubuf_info *ubuf){
 /* zym */
 static bool qavail_callback(struct ubuf_info *ubuf)
 {
+	struct vhost_net_ubuf_ref *ubufs = ubuf->ctx;
+	struct vhost_virtqueue *vq = ubufs->vq;
+	int cnt;
+	struct vhost_net_virtqueue *nvq = container_of(vq, struct vhost_net_virtqueue, vq);
+	bool pass = false;
+
+	rcu_read_lock_bh();
+
+	//if the nvq is not in the global list (not backoff before), continue passing the packet to the lower layer
+	if(!nvq->in_queue){
+		pass = true;
+	}
+	else{
+		/*if nvq is in the global list: (1) if the packet is the original packet that should be resent, pass the packet to the lower layer and remove the nvq from the global list;
+		(2) if the packet should be sent later than the original packet, drop the packet */
+		if(ubuf->desc <= nvq->backoff_upend_idx){
+			nvq->in_queue = false;
+			pass = true;			
+		}
+		else{
+			pass = false;
+		}
+	}
+	return pass;
+
 }
 
 static inline unsigned long busy_clock(void)
@@ -949,6 +983,10 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 		n->vqs[i].vhost_hlen = 0;
 		n->vqs[i].sock_hlen = 0;
 		vhost_net_buf_init(&n->vqs[i].rxq);
+
+		n->vqs[i].backoff_upend_idx = 0;	/* zym */
+		n->vqs[i].backoff_last_avail_idx = 0;
+		n->vqs[i].in_queue = false;
 	}
 	vhost_dev_init(dev, vqs, VHOST_NET_VQ_MAX);
 

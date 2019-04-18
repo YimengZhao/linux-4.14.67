@@ -671,6 +671,73 @@ void kfree_skb_list(struct sk_buff *segs)
 }
 EXPORT_SYMBOL(kfree_skb_list);
 
+/* zym */
+void kfree_skb_qfull(struct sk_buff *skb)
+{
+	if(!skb_unref(skb))
+		return;
+
+	trace_kfree_skb(skb, __builtin_return_address(0));
+
+	skb_release_head_state(skb);
+	if (likely(skb->head)){
+		struct skb_shared_info *shinfo = skb_shinfo(skb);
+		int i;
+
+		if (skb->cloned &&
+	    		atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
+			      &shinfo->dataref))
+			return;
+
+		for (i = 0; i < shinfo->nr_frags; i++)
+			__skb_frag_unref(&shinfo->frags[i]);
+
+		if (shinfo->frag_list)
+			kfree_skb_list(shinfo->frag_list);
+
+		//skb_zcopy_clear(skb, true);
+		struct ubuf_info *uarg = skb_zcopy(skb);
+		if(uarg){
+			uarg->vhost_qfull_callback(uarg);
+			skb_shinfo(skb)->tx_flags &= ~SKBTX_ZEROCOPY_FRAG;
+		}
+
+		skb_free_head(skb);
+	}
+	kfree_skbmem(skb);
+}
+EXPORT_SYMBOL(kfree_skb_qfull);
+
+/* zym */
+void kfree_skb_wo_zcopy_clear(struct sk_buff *skb)
+{
+	if (!skb_unref(skb))
+		return;
+
+	trace_kfree_skb(skb, __builtin_return_address(0));
+
+	skb_release_head_state(skb);
+	if(likely(skb->head)){
+		struct skb_shared_info *shinfo = skb_shinfo(skb);
+		int i;
+
+		if (skb->cloned &&
+	    		atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
+			      &shinfo->dataref))
+			return;
+
+		for (i = 0; i < shinfo->nr_frags; i++)
+			__skb_frag_unref(&shinfo->frags[i]);
+
+		if (shinfo->frag_list)
+			kfree_skb_list(shinfo->frag_list);
+
+		skb_free_head(skb);
+	}
+	kfree_skbmem(skb);
+}
+EXPORT_SYMBOL(kfree_skb_wo_zcopy_clear);
+
 /**
  *	skb_tx_error - report an sk_buff xmit error
  *	@skb: buffer that triggered an error

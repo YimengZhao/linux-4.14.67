@@ -960,6 +960,11 @@ static inline bool skb_unref(struct sk_buff *skb)
 void skb_release_head_state(struct sk_buff *skb);
 void kfree_skb(struct sk_buff *skb);
 void kfree_skb_list(struct sk_buff *segs);
+
+/* zym */
+void kfree_skb_wo_zcopy_clear(struct sk_buff *skb);
+void kfree_skb_qfull(struct sk_buff *skb);
+
 void skb_tx_error(struct sk_buff *skb);
 void consume_skb(struct sk_buff *skb);
 void __consume_stateless_skb(struct sk_buff *skb);
