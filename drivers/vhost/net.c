@@ -113,7 +113,7 @@ struct vhost_net_virtqueue {
 
 	/* zym */
 	int backoff_upend_idx;
-	u64 backoff_last_avail_idx;
+	u16 backoff_last_avail_idx;
 	bool in_queue;
 };
 
@@ -306,8 +306,9 @@ static bool vhost_net_tx_select_zcopy(struct vhost_net *net)
 	/* TX flush waits for outstanding DMAs to be done.
 	 * Don't start new DMAs.
 	 */
-	return !net->tx_flush &&
-		net->tx_packets / 64 >= net->tx_zcopy_err;
+	/*return !net->tx_flush &&
+		net->tx_packets / 64 >= net->tx_zcopy_err;*/
+	return !net->tx_flush; 	/* zym */
 }
 
 static bool vhost_sock_zcopy(struct socket *sock)
@@ -379,6 +380,27 @@ static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 
 /* zym */
 static void qfull_callback(struct ubuf_info *ubuf){
+	struct vhost_net_ubuf_ref *ubufs = ubuf->ctx;
+	struct vhost_virtqueue *vq = ubufs->vq;
+	int cnt;
+	struct vhost_net_virtqueue *nvq = container_of(vq, struct vhost_net_virtqueue, vq);
+
+	rcu_read_lock_bh();
+
+	//if vhost_net_virtqueue is not in the global list, add it to the global list and update the upend_idx and last_avail_idx	
+	if(!nvq->in_queue){
+		nvq->upend_idx = nvq->backoff_upend_idx;
+		vq->last_avail_idx = nvq->backoff_last_avail_idx;
+		nvq->in_queue = true;
+		printk(KERN_DEBUG "qfull_callback:upend_idx:%d, backoff_idx:%d, last_avail:%u, backoff_avail:%u", nvq->upend_idx, nvq->backoff_upend_idx, vq->last_avail_idx, nvq->backoff_last_avail_idx);
+	}
+
+	cnt = vhost_net_ubuf_put(ubufs);
+
+	if (cnt <= 1 || !(cnt % 16))
+		vhost_poll_queue(&vq->poll);
+
+	rcu_read_unlock_bh();
 }
 
 /* zym */
@@ -399,6 +421,7 @@ static bool qavail_callback(struct ubuf_info *ubuf)
 	else{
 		/*if nvq is in the global list: (1) if the packet is the original packet that should be resent, pass the packet to the lower layer and remove the nvq from the global list;
 		(2) if the packet should be sent later than the original packet, drop the packet */
+		printk(KERN_DEBUG "qavail: desc:%lu, backoff_upend_idx:%d", ubuf->desc, nvq->backoff_upend_idx);
 		if(ubuf->desc <= nvq->backoff_upend_idx){
 			nvq->in_queue = false;
 			pass = true;			
@@ -485,6 +508,7 @@ static bool vhost_exceeds_maxpend(struct vhost_net *net)
 
 /* Expects to be always run from workqueue - which acts as
  * read-size critical section for our kind of RCU. */
+int counter = 0;
 static void handle_tx(struct vhost_net *net)
 {
 	struct vhost_net_virtqueue *nvq = &net->vqs[VHOST_NET_VQ_TX];
@@ -526,8 +550,8 @@ static void handle_tx(struct vhost_net *net)
 		/* If more outstanding DMAs, queue the work.
 		 * Handle upend_idx wrap around
 		 */
-		if (unlikely(vhost_exceeds_maxpend(net)))
-			break;
+		/*if (unlikely(vhost_exceeds_maxpend(net)))
+			break;*/
 
 		head = vhost_net_tx_get_vq_desc(net, vq, vq->iov,
 						ARRAY_SIZE(vq->iov),
@@ -566,8 +590,26 @@ static void handle_tx(struct vhost_net *net)
 				      nvq->done_idx
 				   && vhost_net_tx_select_zcopy(net);
 
+		/* zym */
+		counter++;
+		if(counter % 1000 == 0 && !zcopy_used){
+			if(!zcopy)
+				printk(KERN_DEBUG "zcopy");
+			if(len < VHOST_GOODCOPY_LEN)
+				printk(KERN_DEBUG "len");
+			if((nvq->upend_idx + 1) % UIO_MAXIOV == nvq->done_idx)
+				printk(KERN_DEBUG "upend_idx");
+			if(!vhost_net_tx_select_zcopy(net)){
+				if(net->tx_flush)
+					printk(KERN_DEBUG "tx_flush");
+				printk(KERN_DEBUG "tx_packet:%u, tx_zcopy_err:%u", net->tx_packets, net->tx_zcopy_err);
+			}
+				 
+		}
+
+
 		/* use msg_control to pass vhost zerocopy ubuf info to skb */
-		if (zcopy_used) {
+		if(zcopy_used) {
 			struct ubuf_info *ubuf;
 			ubuf = nvq->ubuf_info + nvq->upend_idx;
 

@@ -142,8 +142,9 @@ void br_forward(const struct net_bridge_port *to,
 		struct sk_buff *skb, bool local_rcv, bool local_orig)
 {
 	if (to && should_deliver(to, skb)) {
-		if (local_rcv)
+		if (local_rcv){
 			deliver_clone(to, skb, local_orig);
+		}
 		else
 			__br_forward(to, skb, local_orig);
 		return;
