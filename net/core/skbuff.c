@@ -700,8 +700,8 @@ void kfree_skb_qfull(struct sk_buff *skb)
 		if(uarg){
 			if (uarg->callback == sock_zerocopy_callback) 
 				printk(KERN_DEBUG "sock_zero_copy_callback should be called");
-			//uarg->vhost_qfull_callback(uarg);
-			uarg->callback(uarg, true);
+			uarg->vhost_qfull_callback(uarg);
+			//uarg->callback(uarg, true);
 			skb_shinfo(skb)->tx_flags &= ~SKBTX_ZEROCOPY_FRAG;
 		}else{
 			printk(KERN_DEBUG "uarg null");

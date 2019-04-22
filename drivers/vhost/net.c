@@ -336,10 +336,6 @@ static void vhost_zerocopy_signal_used(struct vhost_net *net,
 		if (VHOST_DMA_IS_DONE(vq->heads[i].len)) {
 			vq->heads[i].len = VHOST_DMA_CLEAR_LEN;
 			++j;
-
-			/* zym */
-			nvq->backoff_upend_idx = (nvq->backoff_upend_idx + 1) % UIO_MAXIOV;
-			nvq->backoff_last_avail_idx++;
 		} else
 			break;
 	}
@@ -389,10 +385,12 @@ static void qfull_callback(struct ubuf_info *ubuf){
 
 	//if vhost_net_virtqueue is not in the global list, add it to the global list and update the upend_idx and last_avail_idx	
 	if(!nvq->in_queue){
-		nvq->upend_idx = nvq->backoff_upend_idx;
-		vq->last_avail_idx = nvq->backoff_last_avail_idx;
+		printk(KERN_DEBUG "qfull_callback:upend_idx:%d,backoff_upend_idx:%lu, last_avail:%u, backoff_avail:%u, done_idx:%d",nvq->upend_idx, 
+			ubuf->desc, vq->last_avail_idx, ubuf->backoff_last_avail_idx, nvq->done_idx);
+		nvq->upend_idx = ubuf->desc;
+		vq->last_avail_idx = ubuf->backoff_last_avail_idx;
+		nvq->backoff_upend_idx = ubuf->desc;
 		nvq->in_queue = true;
-		printk(KERN_DEBUG "qfull_callback:upend_idx:%d, backoff_idx:%d, last_avail:%u, backoff_avail:%u", nvq->upend_idx, nvq->backoff_upend_idx, vq->last_avail_idx, nvq->backoff_last_avail_idx);
 	}
 
 	cnt = vhost_net_ubuf_put(ubufs);
@@ -416,15 +414,17 @@ static bool qavail_callback(struct ubuf_info *ubuf)
 
 	//if the nvq is not in the global list (not backoff before), continue passing the packet to the lower layer
 	if(!nvq->in_queue){
+		printk(KERN_DEBUG "not in queue");
 		pass = true;
 	}
 	else{
 		/*if nvq is in the global list: (1) if the packet is the original packet that should be resent, pass the packet to the lower layer and remove the nvq from the global list;
 		(2) if the packet should be sent later than the original packet, drop the packet */
-		printk(KERN_DEBUG "qavail: desc:%lu, backoff_upend_idx:%d", ubuf->desc, nvq->backoff_upend_idx);
+		printk(KERN_DEBUG "qavail_callback: desc:%lu, backoff_upend_idx:%d", ubuf->desc, nvq->backoff_upend_idx);
 		if(ubuf->desc <= nvq->backoff_upend_idx){
 			nvq->in_queue = false;
-			pass = true;			
+			pass = true;
+			printk(KERN_DEBUG "in_queue set to false");			
 		}
 		else{
 			pass = false;
@@ -508,7 +508,7 @@ static bool vhost_exceeds_maxpend(struct vhost_net *net)
 
 /* Expects to be always run from workqueue - which acts as
  * read-size critical section for our kind of RCU. */
-int counter = 0;
+int tx_counter = 0;
 static void handle_tx(struct vhost_net *net)
 {
 	struct vhost_net_virtqueue *nvq = &net->vqs[VHOST_NET_VQ_TX];
@@ -591,8 +591,8 @@ static void handle_tx(struct vhost_net *net)
 				   && vhost_net_tx_select_zcopy(net);
 
 		/* zym */
-		counter++;
-		if(counter % 1000 == 0 && !zcopy_used){
+		tx_counter++;
+		if(!zcopy_used){
 			if(!zcopy)
 				printk(KERN_DEBUG "zcopy");
 			if(len < VHOST_GOODCOPY_LEN)
@@ -621,6 +621,8 @@ static void handle_tx(struct vhost_net *net)
 			ubuf->vhost_qavail_callback = qavail_callback;
 			ubuf->vhost_qfull_callback = qfull_callback;
 			ubuf->vq = 1;
+			ubuf->backoff_last_avail_idx = (vq->last_avail_idx-1);
+			printk(KERN_DEBUG "net: avail_idx:%u, last_avail:%d, upend_idx:%u, done_idx:%d", vq->avail_idx, vq->last_avail_idx, nvq->upend_idx, nvq->done_idx);
 
 			ubuf->ctx = nvq->ubufs;
 			ubuf->desc = nvq->upend_idx;

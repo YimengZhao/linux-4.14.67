@@ -447,6 +447,7 @@ struct ubuf_info {
 	
 	bool (*vhost_qavail_callback)(struct ubuf_info *);	/* zym */
 	void (*vhost_qfull_callback)(struct ubuf_info *);
+	u16 backoff_last_avail_idx;
 
 	union {
 		struct {
@@ -690,7 +691,7 @@ struct sk_buff {
 	 * want to keep them across layers you have to do a skb_clone()
 	 * first. This is owned by whoever has the skb queued ATM.
 	 */
-	char			cb[64] __aligned(8);
+	char			cb[72] __aligned(8);	/* zym: original number is 48 */
 
 	unsigned long		_skb_refdst;
 	void			(*destructor)(struct sk_buff *skb);

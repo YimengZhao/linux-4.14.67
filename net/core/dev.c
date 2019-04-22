@@ -3160,6 +3160,7 @@ static void qdisc_pkt_len_init(struct sk_buff *skb)
 	}
 }
 
+int counter = 0; 	/* zym */
 static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 				 struct net_device *dev,
 				 struct netdev_queue *txq)
@@ -3184,7 +3185,6 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 
 	if (unlikely(test_bit(__QDISC_STATE_DEACTIVATED, &q->state))) {
-		printk(KERN_DEBUG "test");	/* zym */
 		__qdisc_drop(skb, &to_free);
 		rc = NET_XMIT_DROP;
 	} else if ((q->flags & TCQ_F_CAN_BYPASS) && !qdisc_qlen(q) &&
@@ -3209,8 +3209,13 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		rc = NET_XMIT_SUCCESS;
 	} else {
 		/* zym */
+		printk(KERN_DEBUG "qlimit:%u", q->limit);
 		if(q->limit > 0){
-			if(q->q.qlen >= q->limit){
+			counter++;
+			printk(KERN_DEBUG "counter:%d", counter);
+			if(counter % 10 == 0){
+			//if(q->q.qlen >= q->limit){
+				printk(KERN_DEBUG "trigger");
                 		kfree_skb_qfull(skb);
 				//kfree_skb(skb);                                  
                                                                             
@@ -3231,7 +3236,9 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
                                 		spin_unlock(root_lock);                          
                                 		return NET_XMIT_DROP;                            
                         		}                                                        
-                		}                                                                
+                		}
+				else
+					printk(KERN_DEBUG "uarg is null");                                                                
         		}
 		}
 
