@@ -674,8 +674,10 @@ EXPORT_SYMBOL(kfree_skb_list);
 /* zym */
 void kfree_skb_qfull(struct sk_buff *skb)
 {
-	if(!skb_unref(skb))
+	if(!skb_unref(skb)){
+		printk(KERN_DEBUG "kfree_skb_qfull return at skb_unref");	/* zym */
 		return;
+	}
 
 	trace_kfree_skb(skb, __builtin_return_address(0));
 

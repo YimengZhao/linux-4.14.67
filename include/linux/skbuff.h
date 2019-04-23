@@ -448,6 +448,7 @@ struct ubuf_info {
 	bool (*vhost_qavail_callback)(struct ubuf_info *);	/* zym */
 	void (*vhost_qfull_callback)(struct ubuf_info *);
 	u16 backoff_last_avail_idx;
+	u16 vq;
 
 	union {
 		struct {
@@ -457,8 +458,7 @@ struct ubuf_info {
 		struct {
 			u32 id;
 			u16 len;
-			u16 zerocopy:1,
-			    vq:1;
+			u16 zerocopy:1;
 			u32 bytelen;
 		};
 	};

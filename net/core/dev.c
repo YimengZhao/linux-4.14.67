@@ -3195,6 +3195,24 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		 * xmit the skb directly.
 		 */
 
+		/* zym */
+		struct ubuf_info *uarg = skb_zcopy(skb);                 
+               	if(uarg){                                                
+                        if(uarg->vq == 1){
+				if(!uarg->vhost_qavail_callback(uarg)){
+                                	//free skb 
+					printk(KERN_DEBUG "q zero:drop skb after");                                      
+                                	kfree_skb_wo_zcopy_clear(skb);                   
+                                	if(unlikely(contended))                          
+                                        	spin_unlock(&q->busylock);               
+                                	spin_unlock(root_lock);                          
+                                	return NET_XMIT_DROP;
+				}
+				else
+					printk(KERN_DEBUG "q zero: vhost_qavail return false");                            
+                        }
+                }
+		
 		qdisc_bstats_update(q, skb);
 
 		if (sch_direct_xmit(skb, q, dev, txq, root_lock, true)) {
@@ -3211,34 +3229,50 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		/* zym */
 		printk(KERN_DEBUG "qlimit:%u", q->limit);
 		if(q->limit > 0){
-			counter++;
-			printk(KERN_DEBUG "counter:%d", counter);
-			if(counter % 10 == 0){
-			//if(q->q.qlen >= q->limit){
+			//counter++;
+			//printk(KERN_DEBUG "counter:%d", counter);
+			//if(counter % 10 == 0){
+			if(q->q.qlen >= q->limit){
 				printk(KERN_DEBUG "trigger");
-                		kfree_skb_qfull(skb);
-				//kfree_skb(skb);                                  
+
+				struct ubuf_info *uarg = skb_zcopy(skb);
+				if(uarg){
+					if(uarg->vq == 1){
+						if(uarg->vhost_qavail_callback(uarg)){
+                					kfree_skb_qfull(skb);
+						}
+						else{
+							kfree_skb_wo_zcopy_clear(skb);			
+						}
                                                                             
-                		if(unlikely(contended))                                    
-                        		spin_unlock(&q->busylock);                          
-                		spin_unlock(root_lock);                                  
-                		return NET_XMIT_DROP;                                         
-        		}                                                                
+                				if(unlikely(contended))                                    
+                        				spin_unlock(&q->busylock);                          
+                				spin_unlock(root_lock);                                  
+                				return NET_XMIT_DROP;
+					}
+					else
+						printk(KERN_DEBUG "cannot backoff: vq not 1");                                         
+        			}
+				else
+					printk(KERN_DEBUG "cannot backoff: null uarg");
+			}                                                                
         		else{                                                            
                 		struct ubuf_info *uarg = skb_zcopy(skb);                 
                 		if(uarg){                                                
-                        		if(uarg->vq == 1  && !uarg->vhost_qavail_callback(uarg)){
-                                		//free skb 
-						printk(KERN_DEBUG "drop skb after");                                      
-                                		kfree_skb_wo_zcopy_clear(skb);                   
-                                		if(unlikely(contended))                          
-                                        		spin_unlock(&q->busylock);               
-                                		spin_unlock(root_lock);                          
-                                		return NET_XMIT_DROP;                            
-                        		}                                                        
+                        		if(uarg->vq == 1){
+					  	if(!uarg->vhost_qavail_callback(uarg)){
+                                			//free skb 
+							printk(KERN_DEBUG "drop skb after");                                      
+                                			kfree_skb_wo_zcopy_clear(skb);                   
+                                			if(unlikely(contended))                          
+                                        			spin_unlock(&q->busylock);               
+                                			spin_unlock(root_lock);                          
+                                			return NET_XMIT_DROP;
+						}
+						else
+							printk(KERN_DEBUG "vhost_qavail return false");                            
+                        		}
                 		}
-				else
-					printk(KERN_DEBUG "uarg is null");                                                                
         		}
 		}
 

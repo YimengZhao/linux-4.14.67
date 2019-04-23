@@ -430,8 +430,10 @@ static bool qavail_callback(struct ubuf_info *ubuf)
 			pass = false;
 		}
 	}
-	return pass;
 
+	rcu_read_unlock_bh();
+
+	return pass;
 }
 
 static inline unsigned long busy_clock(void)
@@ -622,7 +624,7 @@ static void handle_tx(struct vhost_net *net)
 			ubuf->vhost_qfull_callback = qfull_callback;
 			ubuf->vq = 1;
 			ubuf->backoff_last_avail_idx = (vq->last_avail_idx-1);
-			printk(KERN_DEBUG "net: avail_idx:%u, last_avail:%d, upend_idx:%u, done_idx:%d", vq->avail_idx, vq->last_avail_idx, nvq->upend_idx, nvq->done_idx);
+			//printk(KERN_DEBUG "net: avail_idx:%u, last_avail:%d, upend_idx:%u, done_idx:%d, vq->num:%d", vq->avail_idx, vq->last_avail_idx, nvq->upend_idx, nvq->done_idx, vq->num);
 
 			ubuf->ctx = nvq->ubufs;
 			ubuf->desc = nvq->upend_idx;
