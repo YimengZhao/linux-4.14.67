@@ -3161,6 +3161,29 @@ static void qdisc_pkt_len_init(struct sk_buff *skb)
 }
 
 int counter = 0; 	/* zym */
+struct tbf_sched_data {
+/* Parameters */
+	u32		limit;		/* Maximal length of backlog: bytes */
+	u32		max_size;
+	s64		buffer;		/* Token bucket depth/rate: MUST BE >= MTU/B */
+	s64		mtu;
+	struct psched_ratecfg rate;
+	struct psched_ratecfg peak;
+
+/* Variables */
+	s64	tokens;			/* Current number of B tokens */
+	s64	ptokens;		/* Current number of P tokens */
+	s64	t_c;			/* Time check-point */
+	struct Qdisc	*qdisc;		/* Inner qdisc, default - bfifo queue */
+	struct qdisc_watchdog watchdog;	/* Watchdog timer */
+};
+
+static unsigned int skb_gso_mac_seglen(const struct sk_buff *skb)
+{
+	unsigned int hdr_len = skb_transport_header(skb) - skb_mac_header(skb);
+	return hdr_len + skb_gso_transport_seglen(skb);
+}
+
 static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 				 struct net_device *dev,
 				 struct netdev_queue *txq)
@@ -3208,8 +3231,8 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
                                 	spin_unlock(root_lock);                          
                                 	return NET_XMIT_DROP;
 				}
-				else
-					printk(KERN_DEBUG "q zero: vhost_qavail return false");                            
+				//else
+					//printk(KERN_DEBUG "q zero: vhost_qavail return false");                            
                         }
                 }
 		
@@ -3227,13 +3250,16 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		rc = NET_XMIT_SUCCESS;
 	} else {
 		/* zym */
-		printk(KERN_DEBUG "qlimit:%u", q->limit);
-		if(q->limit > 0){
+		//printk(KERN_DEBUG "qlimit:%u", q->limit);
+		struct tbf_sched_data *tbf_q = qdisc_priv(q);
+		if(tbf_q && tbf_q->qdisc){
 			//counter++;
 			//printk(KERN_DEBUG "counter:%d", counter);
 			//if(counter % 10 == 0){
-			if(q->q.qlen >= q->limit){
-				printk(KERN_DEBUG "trigger");
+
+			struct Qdisc *bfifo = tbf_q->qdisc;
+			if((bfifo->qstats.backlog + qdisc_pkt_len(skb) > bfifo->limit) || (qdisc_pkt_len(skb) > tbf_q->max_size && !(skb_is_gso(skb) && skb_gso_mac_seglen(skb) <= tbf_q->max_size))){
+				//printk(KERN_DEBUG "trigger:skb:%u, max_size:%u", qdisc_pkt_len(skb), tbf_q->max_size);
 
 				struct ubuf_info *uarg = skb_zcopy(skb);
 				if(uarg){
@@ -3262,15 +3288,15 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
                         		if(uarg->vq == 1){
 					  	if(!uarg->vhost_qavail_callback(uarg)){
                                 			//free skb 
-							printk(KERN_DEBUG "drop skb after");                                      
+							//printk(KERN_DEBUG "drop skb after");                                      
                                 			kfree_skb_wo_zcopy_clear(skb);                   
                                 			if(unlikely(contended))                          
                                         			spin_unlock(&q->busylock);               
                                 			spin_unlock(root_lock);                          
                                 			return NET_XMIT_DROP;
 						}
-						else
-							printk(KERN_DEBUG "vhost_qavail return false");                            
+						//else
+							//printk(KERN_DEBUG "vhost_qavail return false");                            
                         		}
                 		}
         		}

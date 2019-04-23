@@ -385,8 +385,8 @@ static void qfull_callback(struct ubuf_info *ubuf){
 
 	//if vhost_net_virtqueue is not in the global list, add it to the global list and update the upend_idx and last_avail_idx	
 	if(!nvq->in_queue){
-		printk(KERN_DEBUG "qfull_callback:upend_idx:%d,backoff_upend_idx:%lu, last_avail:%u, backoff_avail:%u, done_idx:%d",nvq->upend_idx, 
-			ubuf->desc, vq->last_avail_idx, ubuf->backoff_last_avail_idx, nvq->done_idx);
+		/*printk(KERN_DEBUG "qfull_callback:upend_idx:%d,backoff_upend_idx:%lu, last_avail:%u, backoff_avail:%u, done_idx:%d",nvq->upend_idx, 
+			ubuf->desc, vq->last_avail_idx, ubuf->backoff_last_avail_idx, nvq->done_idx);*/
 		nvq->upend_idx = ubuf->desc;
 		vq->last_avail_idx = ubuf->backoff_last_avail_idx;
 		nvq->backoff_upend_idx = ubuf->desc;
@@ -414,17 +414,17 @@ static bool qavail_callback(struct ubuf_info *ubuf)
 
 	//if the nvq is not in the global list (not backoff before), continue passing the packet to the lower layer
 	if(!nvq->in_queue){
-		printk(KERN_DEBUG "not in queue");
+		//printk(KERN_DEBUG "not in queue");
 		pass = true;
 	}
 	else{
 		/*if nvq is in the global list: (1) if the packet is the original packet that should be resent, pass the packet to the lower layer and remove the nvq from the global list;
 		(2) if the packet should be sent later than the original packet, drop the packet */
-		printk(KERN_DEBUG "qavail_callback: desc:%lu, backoff_upend_idx:%d", ubuf->desc, nvq->backoff_upend_idx);
+		//printk(KERN_DEBUG "qavail_callback: desc:%lu, backoff_upend_idx:%d", ubuf->desc, nvq->backoff_upend_idx);
 		if(ubuf->desc <= nvq->backoff_upend_idx){
 			nvq->in_queue = false;
 			pass = true;
-			printk(KERN_DEBUG "in_queue set to false");			
+			//printk(KERN_DEBUG "in_queue set to false");			
 		}
 		else{
 			pass = false;
