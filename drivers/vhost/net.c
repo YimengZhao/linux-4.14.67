@@ -115,6 +115,7 @@ struct vhost_net_virtqueue {
 	int backoff_upend_idx;
 	u16 backoff_last_avail_idx;
 	bool in_queue;
+	bool vring_stopped;
 };
 
 struct vhost_net {
@@ -356,6 +357,10 @@ static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 
 	rcu_read_lock_bh();
 
+	/* zym */
+	struct vhost_net_virtqueue *nvq = container_of(vq, struct vhost_net_virtqueue, vq);
+	nvq->vring_stopped = false;
+
 	/* set len to mark this desc buffers done DMA */
 	vq->heads[ubuf->desc].len = success ?
 		VHOST_DMA_DONE_LEN : VHOST_DMA_FAILED_LEN;
@@ -392,7 +397,8 @@ static void qfull_callback(struct ubuf_info *ubuf){
 		nvq->backoff_upend_idx = ubuf->desc;
 		nvq->in_queue = true;
 	}
-
+	nvq->vring_stopped = true;
+	
 	cnt = vhost_net_ubuf_put(ubufs);
 
 	if (cnt <= 1 || !(cnt % 16))
@@ -545,6 +551,7 @@ static void handle_tx(struct vhost_net *net)
 	zcopy = nvq->ubufs;
 
 	for (;;) {
+		
 		/* Release DMAs done buffers first */
 		if (zcopy)
 			vhost_zerocopy_signal_used(net, vq);
@@ -554,6 +561,12 @@ static void handle_tx(struct vhost_net *net)
 		 */
 		/*if (unlikely(vhost_exceeds_maxpend(net)))
 			break;*/
+
+		/* zym */
+		if(nvq->vring_stopped){
+			cpu_relax();
+			continue;
+		}
 
 		head = vhost_net_tx_get_vq_desc(net, vq, vq->iov,
 						ARRAY_SIZE(vq->iov),
@@ -1033,6 +1046,7 @@ static int vhost_net_open(struct inode *inode, struct file *f)
 		n->vqs[i].backoff_upend_idx = 0;	/* zym */
 		n->vqs[i].backoff_last_avail_idx = 0;
 		n->vqs[i].in_queue = false;
+		n->vqs[i].vring_stopped = false;
 	}
 	vhost_dev_init(dev, vqs, VHOST_NET_VQ_MAX);
 
