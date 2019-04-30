@@ -3251,14 +3251,12 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 	} else {
 		/* zym */
 		//printk(KERN_DEBUG "qlimit:%u", q->limit);
-		struct tbf_sched_data *tbf_q = qdisc_priv(q);
-		if(tbf_q && tbf_q->qdisc){
+		if(q->limit){
 			//counter++;
 			//printk(KERN_DEBUG "counter:%d", counter);
 			//if(counter % 10 == 0){
 
-			struct Qdisc *bfifo = tbf_q->qdisc;
-			if((bfifo->qstats.backlog + qdisc_pkt_len(skb) > bfifo->limit) || (qdisc_pkt_len(skb) > tbf_q->max_size && !(skb_is_gso(skb) && skb_gso_mac_seglen(skb) <= tbf_q->max_size))){
+			if(q->q.qlen >= q->limit){
 				//printk(KERN_DEBUG "trigger:skb:%u, max_size:%u", qdisc_pkt_len(skb), tbf_q->max_size);
 
 				struct ubuf_info *uarg = skb_zcopy(skb);
