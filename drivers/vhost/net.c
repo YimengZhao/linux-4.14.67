@@ -359,7 +359,6 @@ static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 
 	/* zym */
 	struct vhost_net_virtqueue *nvq = container_of(vq, struct vhost_net_virtqueue, vq);
-	nvq->vring_stopped = false;
 
 	/* set len to mark this desc buffers done DMA */
 	vq->heads[ubuf->desc].len = success ?
@@ -373,8 +372,9 @@ static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 	 * (the value 16 here is more or less arbitrary, it's tuned to trigger
 	 * less than 10% of times).
 	 */
-	if (cnt <= 1 || !(cnt % 16))
+	if (cnt <= 1 || !(cnt % 16) || nvq->vring_stopped)
 		vhost_poll_queue(&vq->poll);
+	nvq->vring_stopped = false;
 
 	rcu_read_unlock_bh();
 }
@@ -401,8 +401,8 @@ static void qfull_callback(struct ubuf_info *ubuf){
 	
 	cnt = vhost_net_ubuf_put(ubufs);
 
-	if (cnt <= 1 || !(cnt % 16))
-		vhost_poll_queue(&vq->poll);
+	/*if (cnt <= 1 || !(cnt % 16))
+		vhost_poll_queue(&vq->poll);*/
 
 	rcu_read_unlock_bh();
 }
@@ -564,8 +564,7 @@ static void handle_tx(struct vhost_net *net)
 
 		/* zym */
 		if(nvq->vring_stopped){
-			cpu_relax();
-			continue;
+			break;
 		}
 
 		head = vhost_net_tx_get_vq_desc(net, vq, vq->iov,
